@@ -12,4 +12,9 @@ module.exports = {
     ipcMain: { handle: vi.fn(), on: vi.fn() },
     ipcRenderer,
     shell: { openExternal: vi.fn() },
+    desktopCapturer: { getSources: vi.fn() },
+    screen: {
+        getDisplayMatching: vi.fn(),
+        getDisplayNearestPoint: vi.fn()
+    }
 };
