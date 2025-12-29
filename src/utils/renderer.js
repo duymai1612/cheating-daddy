@@ -745,6 +745,92 @@ function handleShortcut(shortcutKey) {
     }
 }
 
+// === TEXT MODE FUNCTIONS ===
+
+// Capture ROI screenshot and add to queue
+async function captureTextModeScreenshot() {
+    try {
+        const result = await ipcRenderer.invoke('text-mode-capture');
+        if (result.success) {
+            cheddar.setStatus(`📷 ${result.count} queued`);
+            if (result.warning) {
+                console.warn(result.warning);
+            }
+        } else {
+            cheddar.setStatus(result.error);
+        }
+        return result;
+    } catch (error) {
+        console.error('Text mode capture error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// Send queued images to Gemini
+async function sendTextModeQueue() {
+    try {
+        cheddar.setStatus('Sending to Gemini...');
+        cheddar.e()._awaitingNewResponse = true;
+        const result = await ipcRenderer.invoke('text-mode-send');
+        if (!result.success) {
+            cheddar.setStatus(result.error);
+        }
+        return result;
+    } catch (error) {
+        console.error('Text mode send error:', error);
+        cheddar.setStatus('Error: ' + error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+// Clear image queue
+async function clearTextModeQueue() {
+    try {
+        const result = await ipcRenderer.invoke('text-mode-clear-queue');
+        if (result.success) {
+            cheddar.setStatus('Queue cleared');
+        }
+        return result;
+    } catch (error) {
+        console.error('Clear queue error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// Get current queue count
+async function getTextModeQueueCount() {
+    try {
+        const result = await ipcRenderer.invoke('text-mode-get-queue-count');
+        return result.success ? result.count : 0;
+    } catch (error) {
+        return 0;
+    }
+}
+
+// Show ROI selector overlay
+async function selectTextModeROI() {
+    try {
+        const result = await ipcRenderer.invoke('text-mode-select-roi');
+        if (result.success) {
+            cheddar.setStatus('ROI region saved');
+        }
+        return result;
+    } catch (error) {
+        console.error('ROI selection error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// Check if ROI region is defined
+async function hasTextModeROI() {
+    try {
+        const result = await ipcRenderer.invoke('text-mode-has-roi');
+        return result.success && result.hasROI;
+    } catch (error) {
+        return false;
+    }
+}
+
 // Create reference to the main app element
 const cheatingDaddyApp = document.querySelector('cheating-daddy-app');
 
@@ -783,7 +869,28 @@ const cheddar = {
     // Platform detection
     isLinux: isLinux,
     isMacOS: isMacOS,
+
+    // Text mode functions
+    captureTextModeScreenshot,
+    sendTextModeQueue,
+    clearTextModeQueue,
+    getTextModeQueueCount,
+    selectTextModeROI,
+    hasTextModeROI,
+
+    // Assistant mode helpers (default to 'text' for text-based interview assistance)
+    getAssistantMode: () => localStorage.getItem('assistantMode') || 'text',
+    setAssistantMode: (mode) => localStorage.setItem('assistantMode', mode),
 };
 
 // Make it globally available
 window.cheddar = cheddar;
+
+// Listen for queue updates from main process
+ipcRenderer.on('queue-updated', (event, data) => {
+    if (data.count > 0) {
+        cheddar.setStatus(`📷 ${data.count} queued`);
+    } else {
+        cheddar.setStatus('Queue cleared');
+    }
+});

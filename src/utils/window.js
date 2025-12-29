@@ -154,6 +154,11 @@ function getDefaultKeybinds() {
         scrollUp: isMac ? 'Cmd+Shift+Up' : 'Ctrl+Shift+Up',
         scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
         emergencyErase: isMac ? 'Cmd+Shift+E' : 'Ctrl+Shift+E',
+        // Text mode keybinds
+        textModeCapture: isMac ? 'Cmd+Shift+C' : 'Ctrl+Shift+C',
+        textModeSend: isMac ? 'Cmd+Shift+Return' : 'Ctrl+Shift+Return',
+        textModeClear: isMac ? 'Cmd+Shift+X' : 'Ctrl+Shift+X',
+        textModeSelectROI: isMac ? 'Cmd+Shift+R' : 'Ctrl+Shift+R',
     };
 }
 
@@ -340,6 +345,77 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
             console.log(`Registered emergencyErase: ${keybinds.emergencyErase}`);
         } catch (error) {
             console.error(`Failed to register emergencyErase (${keybinds.emergencyErase}):`, error);
+        }
+    }
+
+    // === TEXT MODE SHORTCUTS ===
+    // These only execute when assistantMode is 'text'
+
+    // Helper to check if text mode is active (DRY)
+    async function isTextModeActive() {
+        try {
+            const mode = await mainWindow.webContents.executeJavaScript(
+                `localStorage.getItem('assistantMode') || 'text'`
+            );
+            return mode === 'text';
+        } catch {
+            return false;
+        }
+    }
+
+    // Text mode capture - Cmd+Shift+C
+    if (keybinds.textModeCapture) {
+        try {
+            globalShortcut.register(keybinds.textModeCapture, async () => {
+                if (!await isTextModeActive()) return;
+                console.log('Text mode: Capturing ROI screenshot');
+                mainWindow.webContents.executeJavaScript(`window.cheddar.captureTextModeScreenshot()`);
+            });
+            console.log(`Registered textModeCapture: ${keybinds.textModeCapture}`);
+        } catch (error) {
+            console.error(`Failed to register textModeCapture (${keybinds.textModeCapture}):`, error);
+        }
+    }
+
+    // Text mode send - Cmd+Shift+Return
+    if (keybinds.textModeSend) {
+        try {
+            globalShortcut.register(keybinds.textModeSend, async () => {
+                if (!await isTextModeActive()) return;
+                console.log('Text mode: Sending queue to Gemini');
+                mainWindow.webContents.executeJavaScript(`window.cheddar.sendTextModeQueue()`);
+            });
+            console.log(`Registered textModeSend: ${keybinds.textModeSend}`);
+        } catch (error) {
+            console.error(`Failed to register textModeSend (${keybinds.textModeSend}):`, error);
+        }
+    }
+
+    // Text mode clear - Cmd+Shift+X
+    if (keybinds.textModeClear) {
+        try {
+            globalShortcut.register(keybinds.textModeClear, async () => {
+                if (!await isTextModeActive()) return;
+                console.log('Text mode: Clearing queue');
+                mainWindow.webContents.executeJavaScript(`window.cheddar.clearTextModeQueue()`);
+            });
+            console.log(`Registered textModeClear: ${keybinds.textModeClear}`);
+        } catch (error) {
+            console.error(`Failed to register textModeClear (${keybinds.textModeClear}):`, error);
+        }
+    }
+
+    // Text mode select ROI - Cmd+Shift+R
+    if (keybinds.textModeSelectROI) {
+        try {
+            globalShortcut.register(keybinds.textModeSelectROI, async () => {
+                if (!await isTextModeActive()) return;
+                console.log('Text mode: Showing ROI selector');
+                mainWindow.webContents.executeJavaScript(`window.cheddar.selectTextModeROI()`);
+            });
+            console.log(`Registered textModeSelectROI: ${keybinds.textModeSelectROI}`);
+        } catch (error) {
+            console.error(`Failed to register textModeSelectROI (${keybinds.textModeSelectROI}):`, error);
         }
     }
 }

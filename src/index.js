@@ -8,6 +8,10 @@ const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = requir
 const { initializeRandomProcessNames } = require('./utils/processRandomizer');
 const { applyAntiAnalysisMeasures } = require('./utils/stealthFeatures');
 const { getLocalConfig, writeConfig } = require('./config');
+// Text mode imports
+const { sendMultiImageQuery } = require('./utils/gemini-text-mode');
+const imageQueue = require('./utils/image-queue-manager');
+const { showRegionSelector, captureROIScreenshot, getSavedRegion, clearRegion } = require('./utils/roi-region-selector');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
@@ -153,6 +157,136 @@ function setupGeneralIpcHandlers() {
         } catch (error) {
             console.error('Error getting random display name:', error);
             return 'System Monitor';
+        }
+    });
+
+    // === TEXT MODE IPC HANDLERS ===
+
+    // Capture ROI and add to queue
+    ipcMain.handle('text-mode-capture', async () => {
+        try {
+            const result = await captureROIScreenshot(mainWindow);
+            if (!result.success) {
+                return { success: false, error: result.error };
+            }
+
+            const queueResult = imageQueue.addImage(result.data);
+            sendToRenderer('queue-updated', { count: queueResult.count });
+
+            if (queueResult.warning) {
+                return { success: true, count: queueResult.count, warning: queueResult.warning };
+            }
+
+            return { success: true, count: queueResult.count };
+        } catch (error) {
+            console.error('Text mode capture error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Send queued images to Gemini
+    ipcMain.handle('text-mode-send', async () => {
+        try {
+            const images = imageQueue.getAllImages();
+            if (images.length === 0) {
+                return { success: false, error: 'No images in queue' };
+            }
+
+            // Get API key and settings from renderer
+            const apiKey = await mainWindow.webContents.executeJavaScript(
+                `localStorage.getItem('apiKey')`
+            );
+            const profile = await mainWindow.webContents.executeJavaScript(
+                `localStorage.getItem('selectedProfile') || 'interview'`
+            );
+            const customPrompt = await mainWindow.webContents.executeJavaScript(
+                `localStorage.getItem('customPrompt') || ''`
+            );
+
+            if (!apiKey) {
+                return { success: false, error: 'No API key configured' };
+            }
+
+            sendToRenderer('update-status', 'Sending to Gemini...');
+
+            const result = await sendMultiImageQuery(apiKey, images, profile, customPrompt);
+
+            if (result.success) {
+                sendToRenderer('update-response', result.text);
+                sendToRenderer('update-status', 'Ready');
+                return { success: true };
+            } else {
+                sendToRenderer('update-status', 'Error: ' + result.error);
+                return { success: false, error: result.error };
+            }
+        } catch (error) {
+            console.error('Text mode send error:', error);
+            sendToRenderer('update-status', 'Error: ' + error.message);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Clear queue
+    ipcMain.handle('text-mode-clear-queue', async () => {
+        try {
+            imageQueue.clearQueue();
+            sendToRenderer('queue-updated', { count: 0 });
+            return { success: true };
+        } catch (error) {
+            console.error('Clear queue error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Get queue count
+    ipcMain.handle('text-mode-get-queue-count', async () => {
+        try {
+            return { success: true, count: imageQueue.getCount() };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Show ROI selector
+    ipcMain.handle('text-mode-select-roi', async () => {
+        try {
+            const result = await showRegionSelector(mainWindow);
+            return result;
+        } catch (error) {
+            console.error('ROI selector error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Check if ROI is defined
+    ipcMain.handle('text-mode-has-roi', async () => {
+        try {
+            const region = await getSavedRegion(mainWindow);
+            return { success: true, hasROI: !!region };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Clear ROI
+    ipcMain.handle('text-mode-clear-roi', async () => {
+        try {
+            await clearRegion(mainWindow);
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Get current assistant mode
+    ipcMain.handle('get-assistant-mode', async () => {
+        try {
+            const mode = await mainWindow.webContents.executeJavaScript(
+                `localStorage.getItem('assistantMode') || 'text'`
+            );
+            return { success: true, mode };
+        } catch (error) {
+            return { success: false, mode: 'audio' };
         }
     });
 }
