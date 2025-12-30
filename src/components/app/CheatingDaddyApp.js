@@ -114,6 +114,8 @@ export class CheatingDaddyApp extends LitElement {
         _isClickThrough: { state: true },
         _awaitingNewResponse: { state: true },
         shouldAnimateResponse: { type: Boolean },
+        assistantMode: { type: String }, // 'audio' | 'text'
+        textQueueCount: { type: Number },
     };
 
     constructor() {
@@ -136,6 +138,8 @@ export class CheatingDaddyApp extends LitElement {
         this._awaitingNewResponse = false;
         this._currentResponseIsComplete = true;
         this.shouldAnimateResponse = false;
+        this.assistantMode = localStorage.getItem('assistantMode') || 'text'; // Default to text mode
+        this.textQueueCount = 0;
 
         // Apply layout mode to document root
         this.updateLayoutMode();
@@ -147,25 +151,33 @@ export class CheatingDaddyApp extends LitElement {
         // Set up IPC listeners if needed
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
-            ipcRenderer.on('update-response', (_, response) => {
-                this.setResponse(response);
-            });
-            ipcRenderer.on('update-status', (_, status) => {
-                this.setStatus(status);
-            });
-            ipcRenderer.on('click-through-toggled', (_, isEnabled) => {
-                this._isClickThrough = isEnabled;
-            });
+
+            // Store handler references for proper cleanup
+            this._ipcHandlers = {
+                updateResponse: (_, response) => this.setResponse(response),
+                updateStatus: (_, status) => this.setStatus(status),
+                clickThroughToggled: (_, isEnabled) => { this._isClickThrough = isEnabled; },
+                queueUpdated: (_, data) => {
+                    this.textQueueCount = data.count;
+                }
+            };
+
+            ipcRenderer.on('update-response', this._ipcHandlers.updateResponse);
+            ipcRenderer.on('update-status', this._ipcHandlers.updateStatus);
+            ipcRenderer.on('click-through-toggled', this._ipcHandlers.clickThroughToggled);
+            ipcRenderer.on('queue-updated', this._ipcHandlers.queueUpdated);
         }
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        if (window.require) {
+        if (window.require && this._ipcHandlers) {
             const { ipcRenderer } = window.require('electron');
-            ipcRenderer.removeAllListeners('update-response');
-            ipcRenderer.removeAllListeners('update-status');
-            ipcRenderer.removeAllListeners('click-through-toggled');
+            ipcRenderer.removeListener('update-response', this._ipcHandlers.updateResponse);
+            ipcRenderer.removeListener('update-status', this._ipcHandlers.updateStatus);
+            ipcRenderer.removeListener('click-through-toggled', this._ipcHandlers.clickThroughToggled);
+            ipcRenderer.removeListener('queue-updated', this._ipcHandlers.queueUpdated);
+            this._ipcHandlers = null;
         }
     }
 
@@ -276,9 +288,22 @@ export class CheatingDaddyApp extends LitElement {
             return;
         }
 
-        await cheddar.initializeGemini(this.selectedProfile, this.selectedLanguage);
-        // Pass the screenshot interval as string (including 'manual' option)
-        cheddar.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality);
+        if (this.assistantMode === 'audio') {
+            // Audio mode - existing flow with live capture
+            await cheddar.initializeGemini(this.selectedProfile, this.selectedLanguage);
+            // Pass the screenshot interval as string (including 'manual' option)
+            cheddar.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality);
+        } else {
+            // Text mode - check ROI and set status
+            await cheddar.initializeGemini(this.selectedProfile, this.selectedLanguage);
+            const hasROI = await window.cheddar.hasTextModeROI();
+            if (!hasROI) {
+                this.setStatus('Select ROI (Cmd+Shift+R)');
+            } else {
+                this.setStatus('Ready');
+            }
+        }
+
         this.responses = [];
         this.currentResponseIndex = -1;
         this.startTime = Date.now();
@@ -317,6 +342,31 @@ export class CheatingDaddyApp extends LitElement {
 
     handleBackClick() {
         this.currentView = 'main';
+        this.requestUpdate();
+    }
+
+    // Mode toggle handler for switching between audio and text modes
+    handleModeToggle() {
+        this.assistantMode = this.assistantMode === 'audio' ? 'text' : 'audio';
+        localStorage.setItem('assistantMode', this.assistantMode);
+
+        // Update status based on mode
+        if (this.assistantMode === 'text') {
+            this.setStatus('Ready');
+            // Check if ROI is defined
+            if (window.cheddar) {
+                window.cheddar.hasTextModeROI().then(hasROI => {
+                    if (!hasROI) {
+                        this.setStatus('Select ROI (Cmd+Shift+R)');
+                    }
+                }).catch(err => {
+                    console.error('Error checking ROI:', err);
+                });
+            }
+        } else {
+            this.setStatus('Listening...');
+        }
+
         this.requestUpdate();
     }
 
@@ -443,6 +493,8 @@ export class CheatingDaddyApp extends LitElement {
                         .responses=${this.responses}
                         .currentResponseIndex=${this.currentResponseIndex}
                         .selectedProfile=${this.selectedProfile}
+                        .assistantMode=${this.assistantMode}
+                        .textQueueCount=${this.textQueueCount}
                         .onSendText=${message => this.handleSendText(message)}
                         .shouldAnimateResponse=${this.shouldAnimateResponse}
                         @response-index-changed=${this.handleResponseIndexChanged}
@@ -473,6 +525,9 @@ export class CheatingDaddyApp extends LitElement {
                         .statusText=${this.statusText}
                         .startTime=${this.startTime}
                         .advancedMode=${this.advancedMode}
+                        .assistantMode=${this.assistantMode}
+                        .textQueueCount=${this.textQueueCount}
+                        .onModeToggle=${() => this.handleModeToggle()}
                         .onCustomizeClick=${() => this.handleCustomizeClick()}
                         .onHelpClick=${() => this.handleHelpClick()}
                         .onHistoryClick=${() => this.handleHistoryClick()}

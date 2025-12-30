@@ -86,6 +86,53 @@ export class AppHeader extends LitElement {
             font-size: 12px;
             margin: 0px;
         }
+
+        .mode-toggle {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--button-background);
+            border: 1px solid var(--button-border);
+            border-radius: 6px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-color);
+            transition: all 0.2s ease;
+        }
+
+        .mode-toggle:hover {
+            background: var(--button-hover-background);
+        }
+
+        .mode-toggle.active {
+            background: var(--focus-border-color);
+            border-color: var(--focus-border-color);
+            color: white;
+        }
+
+        .queue-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--focus-border-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .queue-badge.empty {
+            background: var(--button-background);
+            color: var(--description-color);
+        }
+
+        .mode-section {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
     `;
 
     static properties = {
@@ -101,6 +148,9 @@ export class AppHeader extends LitElement {
         isClickThrough: { type: Boolean, reflect: true },
         advancedMode: { type: Boolean },
         onAdvancedClick: { type: Function },
+        assistantMode: { type: String }, // 'audio' | 'text'
+        textQueueCount: { type: Number },
+        onModeToggle: { type: Function },
     };
 
     constructor() {
@@ -117,6 +167,9 @@ export class AppHeader extends LitElement {
         this.isClickThrough = false;
         this.advancedMode = false;
         this.onAdvancedClick = () => {};
+        this.assistantMode = 'text'; // Default to text mode
+        this.textQueueCount = 0;
+        this.onModeToggle = () => {};
         this._timerInterval = null;
     }
 
@@ -198,6 +251,39 @@ export class AppHeader extends LitElement {
         return navigationViews.includes(this.currentView);
     }
 
+    // Render queue badge for text mode
+    renderQueueBadge() {
+        if (this.textQueueCount === 0) {
+            return html`<span class="queue-badge empty">No images</span>`;
+        }
+        return html`<span class="queue-badge">📷 ${this.textQueueCount} queued</span>`;
+    }
+
+    // Render mode toggle section (only in assistant view)
+    renderModeSection() {
+        if (this.currentView !== 'assistant') return '';
+
+        return html`
+            <div class="mode-section">
+                <button
+                    class="mode-toggle ${this.assistantMode === 'audio' ? 'active' : ''}"
+                    @click=${() => this.assistantMode !== 'audio' && this.onModeToggle()}
+                    title="Audio Mode - Real-time voice transcription"
+                >
+                    🎤 Audio
+                </button>
+                <button
+                    class="mode-toggle ${this.assistantMode === 'text' ? 'active' : ''}"
+                    @click=${() => this.assistantMode !== 'text' && this.onModeToggle()}
+                    title="Text Mode - Screenshot capture (Cmd+Shift+C)"
+                >
+                    📷 Text
+                </button>
+                ${this.assistantMode === 'text' ? this.renderQueueBadge() : ''}
+            </div>
+        `;
+    }
+
     render() {
         const elapsedTime = this.getElapsedTime();
 
@@ -209,6 +295,7 @@ export class AppHeader extends LitElement {
                         ? html`
                               <span>${elapsedTime}</span>
                               <span>${this.statusText}</span>
+                              ${this.renderModeSection()}
                           `
                         : ''}
                     ${this.currentView === 'main'

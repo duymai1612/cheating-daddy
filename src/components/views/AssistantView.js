@@ -289,6 +289,36 @@ export class AssistantView extends LitElement {
         .save-button svg {
             stroke: currentColor !important;
         }
+
+        .text-mode-help {
+            background: var(--input-background);
+            border: 1px solid var(--button-border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--description-color);
+        }
+
+        .text-mode-help .hotkey {
+            display: inline-block;
+            background: var(--button-background);
+            border: 1px solid var(--button-border);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: monospace;
+            font-size: 11px;
+            margin: 0 2px;
+        }
+
+        .text-mode-help ul {
+            margin: 8px 0 0 0;
+            padding-left: 16px;
+        }
+
+        .text-mode-help li {
+            margin: 4px 0;
+        }
     `;
 
     static properties = {
@@ -298,6 +328,8 @@ export class AssistantView extends LitElement {
         onSendText: { type: Function },
         shouldAnimateResponse: { type: Boolean },
         savedResponses: { type: Array },
+        assistantMode: { type: String }, // 'audio' | 'text'
+        textQueueCount: { type: Number },
     };
 
     constructor() {
@@ -307,6 +339,8 @@ export class AssistantView extends LitElement {
         this.selectedProfile = 'interview';
         this.onSendText = () => {};
         this._lastAnimatedWordCount = 0;
+        this.assistantMode = 'text'; // Default to text mode
+        this.textQueueCount = 0;
         // Load saved responses from localStorage
         try {
             this.savedResponses = JSON.parse(localStorage.getItem('savedResponses') || '[]');
@@ -589,12 +623,33 @@ export class AssistantView extends LitElement {
         }
     }
 
+    // Render text mode help section showing keyboard shortcuts
+    renderTextModeHelp() {
+        if (this.assistantMode !== 'text') return '';
+
+        return html`
+            <div class="text-mode-help">
+                <strong>Text Mode Shortcuts:</strong>
+                <ul>
+                    <li><span class="hotkey">Cmd+Shift+C</span> Capture screenshot & queue</li>
+                    <li><span class="hotkey">Cmd+Shift+Enter</span> Send queue to AI</li>
+                    <li><span class="hotkey">Cmd+Shift+X</span> Clear queue</li>
+                    <li><span class="hotkey">Cmd+Shift+R</span> Select capture region</li>
+                </ul>
+            </div>
+        `;
+    }
+
     render() {
         const currentResponse = this.getCurrentResponse();
         const responseCounter = this.getResponseCounter();
         const isSaved = this.isResponseSaved();
+        const showTextModeHelp = this.assistantMode === 'text' &&
+                                 this.textQueueCount === 0 &&
+                                 this.responses.length === 0;
 
         return html`
+            ${showTextModeHelp ? this.renderTextModeHelp() : ''}
             <div class="response-container" id="responseContainer"></div>
 
             <div class="text-input-container">
