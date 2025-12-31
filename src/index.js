@@ -162,6 +162,15 @@ function setupGeneralIpcHandlers() {
 
     // === TEXT MODE IPC HANDLERS ===
 
+    // Store custom query for next send
+    let pendingCustomQuery = null;
+
+    // Set custom query text for next send
+    ipcMain.handle('text-mode-set-query', async (event, query) => {
+        pendingCustomQuery = query;
+        return { success: true };
+    });
+
     // Capture ROI and add to queue
     ipcMain.handle('text-mode-capture', async () => {
         try {
@@ -209,7 +218,11 @@ function setupGeneralIpcHandlers() {
 
             sendToRenderer('update-status', 'Sending to Gemini...');
 
-            const result = await sendMultiImageQuery(apiKey, images, profile, customPrompt);
+            // Use custom query if set, otherwise use default
+            const queryText = pendingCustomQuery || null;
+            pendingCustomQuery = null; // Clear after use
+
+            const result = await sendMultiImageQuery(apiKey, images, profile, customPrompt, queryText);
 
             if (result.success) {
                 sendToRenderer('update-response', result.text);

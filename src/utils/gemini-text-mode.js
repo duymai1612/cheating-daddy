@@ -7,9 +7,9 @@ const { GoogleGenAI } = require('@google/genai');
 const { getSystemPrompt } = require('./prompts');
 
 // Model selection - use newest model with best intelligence
-// Fallback chain: gemini-2.5-flash (stable) -> gemini-2.0-flash
-const TEXT_MODE_MODEL = 'gemini-2.5-flash';
-const FALLBACK_MODEL = 'gemini-2.0-flash';
+// Fallback chain: gemini-3-flash-preview (latest) -> gemini-2.5-flash
+const TEXT_MODE_MODEL = 'gemini-3-flash-preview';
+const FALLBACK_MODEL = 'gemini-2.5-flash';
 
 /**
  * Send multiple images to Gemini for analysis
@@ -17,9 +17,10 @@ const FALLBACK_MODEL = 'gemini-2.0-flash';
  * @param {string[]} images - Array of base64 encoded JPEG images
  * @param {string} profile - Profile name (interview, sales, etc.)
  * @param {string} customPrompt - User's custom prompt/context
+ * @param {string|null} customQuery - Custom user query (e.g., "more", "explain", etc.)
  * @returns {Promise<{success: boolean, text?: string, error?: string}>}
  */
-async function sendMultiImageQuery(apiKey, images, profile = 'interview', customPrompt = '') {
+async function sendMultiImageQuery(apiKey, images, profile = 'interview', customPrompt = '', customQuery = null) {
     if (!apiKey || !images || images.length === 0) {
         return { success: false, error: 'Missing API key or images' };
     }
@@ -39,8 +40,10 @@ async function sendMultiImageQuery(apiKey, images, profile = 'interview', custom
         // Get system prompt (Google Search disabled for text mode)
         const systemPrompt = getSystemPrompt(profile, customPrompt, false);
 
-        // User prompt for transcript analysis
-        const userPrompt = `Analyze these ${images.length} screenshot(s) of a transcript/conversation.
+        // User prompt - use custom query if provided, otherwise default
+        const userPrompt = customQuery
+            ? `Based on these ${images.length} screenshot(s), ${customQuery}`
+            : `Analyze these ${images.length} screenshot(s) of a transcript/conversation.
 The screenshots are in chronological order. Focus on the most recent question or topic being discussed.
 Provide a helpful, concise response that the user can use immediately.`;
 

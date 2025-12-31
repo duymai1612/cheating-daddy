@@ -236,7 +236,8 @@ function showRegionSelector(mainWindow) {
 
         // Handle region selection complete
         const handleRegionSelected = (event, region) => {
-            if (event.sender.id !== overlay.webContents.id) return;
+            // Check if overlay still exists before accessing webContents
+            if (overlay.isDestroyed() || event.sender.id !== overlay.webContents.id) return;
 
             // Convert to absolute screen coordinates
             const absoluteRegion = {
@@ -255,7 +256,8 @@ function showRegionSelector(mainWindow) {
 
         // Handle cancel
         const handleCancel = (event) => {
-            if (event.sender.id !== overlay.webContents.id) return;
+            // Check if overlay still exists before accessing webContents
+            if (overlay.isDestroyed() || event.sender.id !== overlay.webContents.id) return;
             overlay.close();
             mainWindow.focus();
             resolve({ success: false, error: 'Cancelled' });

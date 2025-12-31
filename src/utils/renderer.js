@@ -797,6 +797,36 @@ async function clearTextModeQueue() {
     }
 }
 
+// Send text query with automatic capture - for chat input in text mode
+async function sendTextModeQueryWithCapture(message) {
+    try {
+        // First capture screenshot
+        cheddar.setStatus('Capturing...');
+        const captureResult = await ipcRenderer.invoke('text-mode-capture');
+        if (!captureResult.success) {
+            return { success: false, error: 'Failed to capture: ' + captureResult.error };
+        }
+
+        // Set custom query text
+        const setQueryResult = await ipcRenderer.invoke('text-mode-set-query', message);
+        if (!setQueryResult.success) {
+            return { success: false, error: 'Failed to set query' };
+        }
+
+        // Send to Gemini
+        cheddar.setStatus('Sending to Gemini...');
+        cheddar.e()._awaitingNewResponse = true;
+        const sendResult = await ipcRenderer.invoke('text-mode-send');
+        if (!sendResult.success) {
+            cheddar.setStatus(sendResult.error);
+        }
+        return sendResult;
+    } catch (error) {
+        console.error('Text mode query with capture error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 // Get current queue count
 async function getTextModeQueueCount() {
     try {
@@ -874,6 +904,7 @@ const cheddar = {
     captureTextModeScreenshot,
     sendTextModeQueue,
     clearTextModeQueue,
+    sendTextModeQueryWithCapture,
     getTextModeQueueCount,
     selectTextModeROI,
     hasTextModeROI,

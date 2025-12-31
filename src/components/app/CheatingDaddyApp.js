@@ -380,14 +380,32 @@ export class CheatingDaddyApp extends LitElement {
 
     // Assistant view event handlers
     async handleSendText(message) {
-        const result = await window.cheddar.sendTextMessage(message);
+        // In text mode, capture screenshot and send with the message
+        if (this.assistantMode === 'text') {
+            // Clear old responses before new query
+            this.responses = [];
+            this.currentResponseIndex = -1;
+            this.requestUpdate();
 
-        if (!result.success) {
-            console.error('Failed to send message:', result.error);
-            this.setStatus('Error sending message: ' + result.error);
+            // Add message as text query and trigger capture+send
+            const result = await window.cheddar.sendTextModeQueryWithCapture(message);
+            if (!result.success) {
+                console.error('Failed to send text mode message:', result.error);
+                this.setStatus('Error: ' + result.error);
+            } else {
+                this.setStatus('Capturing and sending...');
+                this._awaitingNewResponse = true;
+            }
         } else {
-            this.setStatus('Message sent...');
-            this._awaitingNewResponse = true;
+            // Audio mode - send directly to live session
+            const result = await window.cheddar.sendTextMessage(message);
+            if (!result.success) {
+                console.error('Failed to send message:', result.error);
+                this.setStatus('Error sending message: ' + result.error);
+            } else {
+                this.setStatus('Message sent...');
+                this._awaitingNewResponse = true;
+            }
         }
     }
 

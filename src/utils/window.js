@@ -60,7 +60,7 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
         { useSystemPicker: true }
     );
 
-    mainWindow.setResizable(false);
+    mainWindow.setResizable(true);
     mainWindow.setContentProtection(true);
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
@@ -383,7 +383,16 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
             globalShortcut.register(keybinds.textModeSend, async () => {
                 if (!await isTextModeActive()) return;
                 console.log('Text mode: Sending queue to Gemini');
-                mainWindow.webContents.executeJavaScript(`window.cheddar.sendTextModeQueue()`);
+                // Clear old responses before new query
+                mainWindow.webContents.executeJavaScript(`
+                    const app = window.cheddar.e();
+                    if (app) {
+                        app.responses = [];
+                        app.currentResponseIndex = -1;
+                        app.requestUpdate();
+                    }
+                    window.cheddar.sendTextModeQueue();
+                `);
             });
             console.log(`Registered textModeSend: ${keybinds.textModeSend}`);
         } catch (error) {
@@ -525,7 +534,8 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
 
                     // Check if window is still valid before final operations
                     if (!mainWindow.isDestroyed()) {
-                        mainWindow.setResizable(false);
+                        // Keep window resizable for user control
+                        mainWindow.setResizable(true);
 
                         // Ensure final size is exact
                         mainWindow.setSize(targetWidth, targetHeight);

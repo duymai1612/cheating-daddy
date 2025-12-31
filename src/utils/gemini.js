@@ -4,6 +4,23 @@ const { spawn } = require('child_process');
 const { saveDebugAudio } = require('../audioUtils');
 const { getSystemPrompt } = require('./prompts');
 
+// Safe logging to prevent EPIPE errors when stdout pipe closes
+function safeLog(...args) {
+    try {
+        safeLog(...args);
+    } catch (err) {
+        // Ignore EPIPE errors - stdout pipe may be closed
+    }
+}
+
+function safeError(...args) {
+    try {
+        safeError(...args);
+    } catch (err) {
+        // Ignore EPIPE errors
+    }
+}
+
 // Conversation tracking variables
 let currentSessionId = null;
 let currentTranscription = '';
@@ -45,7 +62,7 @@ function initializeNewSession() {
     currentSessionId = Date.now().toString();
     currentTranscription = '';
     conversationHistory = [];
-    console.log('New conversation session started:', currentSessionId);
+    safeLog('New conversation session started:', currentSessionId);
 }
 
 function saveConversationTurn(transcription, aiResponse) {
@@ -60,7 +77,7 @@ function saveConversationTurn(transcription, aiResponse) {
     };
 
     conversationHistory.push(conversationTurn);
-    console.log('Saved conversation turn:', conversationTurn);
+    safeLog('Saved conversation turn:', conversationTurn);
 
     // Send to renderer to save in IndexedDB
     sendToRenderer('save-conversation-turn', {
@@ -97,14 +114,14 @@ async function sendReconnectionContext() {
             '\n'
         )}`;
 
-        console.log('Sending reconnection context with', transcriptions.length, 'previous questions');
+        safeLog('Sending reconnection context with', transcriptions.length, 'previous questions');
 
         // Send the context message to the new session
         await global.geminiSessionRef.current.sendRealtimeInput({
             text: contextMessage,
         });
     } catch (error) {
-        console.error('Error sending reconnection context:', error);
+        safeError('Error sending reconnection context:', error);
     }
 }
 
@@ -113,13 +130,13 @@ async function getEnabledTools() {
 
     // Check if Google Search is enabled (default: true)
     const googleSearchEnabled = await getStoredSetting('googleSearchEnabled', 'true');
-    console.log('Google Search enabled:', googleSearchEnabled);
+    safeLog('Google Search enabled:', googleSearchEnabled);
 
     if (googleSearchEnabled === 'true') {
         tools.push({ googleSearch: {} });
-        console.log('Added Google Search tool');
+        safeLog('Added Google Search tool');
     } else {
-        console.log('Google Search tool disabled');
+        safeLog('Google Search tool disabled');
     }
 
     return tools;
@@ -137,14 +154,14 @@ async function getStoredSetting(key, defaultValue) {
                 (function() {
                     try {
                         if (typeof localStorage === 'undefined') {
-                            console.log('localStorage not available yet for ${key}');
+                            safeLog('localStorage not available yet for ${key}');
                             return '${defaultValue}';
                         }
                         const stored = localStorage.getItem('${key}');
-                        console.log('Retrieved setting ${key}:', stored);
+                        safeLog('Retrieved setting ${key}:', stored);
                         return stored || '${defaultValue}';
                     } catch (e) {
-                        console.error('Error accessing localStorage for ${key}:', e);
+                        safeError('Error accessing localStorage for ${key}:', e);
                         return '${defaultValue}';
                     }
                 })()
@@ -152,21 +169,21 @@ async function getStoredSetting(key, defaultValue) {
             return value;
         }
     } catch (error) {
-        console.error('Error getting stored setting for', key, ':', error.message);
+        safeError('Error getting stored setting for', key, ':', error.message);
     }
-    console.log('Using default value for', key, ':', defaultValue);
+    safeLog('Using default value for', key, ':', defaultValue);
     return defaultValue;
 }
 
 async function attemptReconnection() {
     if (!lastSessionParams || reconnectionAttempts >= maxReconnectionAttempts) {
-        console.log('Max reconnection attempts reached or no session params stored');
+        safeLog('Max reconnection attempts reached or no session params stored');
         sendToRenderer('update-status', 'Session closed');
         return false;
     }
 
     reconnectionAttempts++;
-    console.log(`Attempting reconnection ${reconnectionAttempts}/${maxReconnectionAttempts}...`);
+    safeLog(`Attempting reconnection ${reconnectionAttempts}/${maxReconnectionAttempts}...`);
 
     // Wait before attempting reconnection
     await new Promise(resolve => setTimeout(resolve, reconnectionDelay));
@@ -183,7 +200,7 @@ async function attemptReconnection() {
         if (session && global.geminiSessionRef) {
             global.geminiSessionRef.current = session;
             reconnectionAttempts = 0; // Reset counter on successful reconnection
-            console.log('Live session reconnected');
+            safeLog('Live session reconnected');
 
             // Send context message with previous transcriptions
             await sendReconnectionContext();
@@ -191,14 +208,14 @@ async function attemptReconnection() {
             return true;
         }
     } catch (error) {
-        console.error(`Reconnection attempt ${reconnectionAttempts} failed:`, error);
+        safeError(`Reconnection attempt ${reconnectionAttempts} failed:`, error);
     }
 
     // If this attempt failed, try again
     if (reconnectionAttempts < maxReconnectionAttempts) {
         return attemptReconnection();
     } else {
-        console.log('All reconnection attempts failed');
+        safeLog('All reconnection attempts failed');
         sendToRenderer('update-status', 'Session closed');
         return false;
     }
@@ -206,7 +223,7 @@ async function attemptReconnection() {
 
 async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'interview', language = 'en-US', isReconnection = false) {
     if (isInitializingSession) {
-        console.log('Session initialization already in progress');
+        safeLog('Session initialization already in progress');
         return false;
     }
 
@@ -242,13 +259,13 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
     try {
         const session = await client.live.connect({
-            model: 'gemini-live-2.5-flash-preview',
+            model: 'gemini-2.5-flash-preview-native-audio-dialog',
             callbacks: {
                 onopen: function () {
                     sendToRenderer('update-status', 'Live session connected');
                 },
                 onmessage: function (message) {
-                    console.log('----------------', message);
+                    safeLog('----------------', message);
 
                     if (message.serverContent?.inputTranscription?.results) {
                         currentTranscription += formatSpeakerResults(message.serverContent.inputTranscription.results);
@@ -257,7 +274,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     // Handle AI model response
                     if (message.serverContent?.modelTurn?.parts) {
                         for (const part of message.serverContent.modelTurn.parts) {
-                            console.log(part);
+                            safeLog(part);
                             if (part.text) {
                                 messageBuffer += part.text;
                                 sendToRenderer('update-response', messageBuffer);
@@ -293,7 +310,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             e.message.includes('unauthorized'));
 
                     if (isApiKeyError) {
-                        console.log('Error due to invalid API key - stopping reconnection attempts');
+                        safeLog('Error due to invalid API key - stopping reconnection attempts');
                         lastSessionParams = null; // Clear session params to prevent reconnection
                         reconnectionAttempts = maxReconnectionAttempts; // Stop further attempts
                         sendToRenderer('update-status', 'Error: Invalid API key');
@@ -314,7 +331,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             e.reason.includes('unauthorized'));
 
                     if (isApiKeyError) {
-                        console.log('Session closed due to invalid API key - stopping reconnection attempts');
+                        safeLog('Session closed due to invalid API key - stopping reconnection attempts');
                         lastSessionParams = null; // Clear session params to prevent reconnection
                         reconnectionAttempts = maxReconnectionAttempts; // Stop further attempts
                         sendToRenderer('update-status', 'Session closed: Invalid API key');
@@ -323,7 +340,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
                     // Attempt automatic reconnection for server-side closures
                     if (lastSessionParams && reconnectionAttempts < maxReconnectionAttempts) {
-                        console.log('Attempting automatic reconnection...');
+                        safeLog('Attempting automatic reconnection...');
                         attemptReconnection();
                     } else {
                         sendToRenderer('update-status', 'Session closed');
@@ -351,7 +368,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         sendToRenderer('session-initializing', false);
         return session;
     } catch (error) {
-        console.error('Failed to initialize Gemini session:', error);
+        safeError('Failed to initialize Gemini session:', error);
         isInitializingSession = false;
         sendToRenderer('session-initializing', false);
         return null;
@@ -360,7 +377,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
 function killExistingSystemAudioDump() {
     return new Promise(resolve => {
-        console.log('Checking for existing SystemAudioDump processes...');
+        safeLog('Checking for existing SystemAudioDump processes...');
 
         // Kill any existing SystemAudioDump processes
         const killProc = spawn('pkill', ['-f', 'SystemAudioDump'], {
@@ -369,15 +386,15 @@ function killExistingSystemAudioDump() {
 
         killProc.on('close', code => {
             if (code === 0) {
-                console.log('Killed existing SystemAudioDump processes');
+                safeLog('Killed existing SystemAudioDump processes');
             } else {
-                console.log('No existing SystemAudioDump processes found');
+                safeLog('No existing SystemAudioDump processes found');
             }
             resolve();
         });
 
         killProc.on('error', err => {
-            console.log('Error checking for existing processes (this is normal):', err.message);
+            safeLog('Error checking for existing processes (this is normal):', err.message);
             resolve();
         });
 
@@ -395,7 +412,7 @@ async function startMacOSAudioCapture(geminiSessionRef) {
     // Kill any existing SystemAudioDump processes first
     await killExistingSystemAudioDump();
 
-    console.log('Starting macOS audio capture with SystemAudioDump...');
+    safeLog('Starting macOS audio capture with SystemAudioDump...');
 
     const { app } = require('electron');
     const path = require('path');
@@ -407,7 +424,7 @@ async function startMacOSAudioCapture(geminiSessionRef) {
         systemAudioPath = path.join(__dirname, '../assets', 'SystemAudioDump');
     }
 
-    console.log('SystemAudioDump path:', systemAudioPath);
+    safeLog('SystemAudioDump path:', systemAudioPath);
 
     // Spawn SystemAudioDump with stealth options
     const spawnOptions = {
@@ -429,11 +446,11 @@ async function startMacOSAudioCapture(geminiSessionRef) {
     systemAudioProc = spawn(systemAudioPath, [], spawnOptions);
 
     if (!systemAudioProc.pid) {
-        console.error('Failed to start SystemAudioDump');
+        safeError('Failed to start SystemAudioDump');
         return false;
     }
 
-    console.log('SystemAudioDump started with PID:', systemAudioProc.pid);
+    safeLog('SystemAudioDump started with PID:', systemAudioProc.pid);
 
     const CHUNK_DURATION = 0.1;
     const SAMPLE_RATE = 24000;
@@ -455,7 +472,7 @@ async function startMacOSAudioCapture(geminiSessionRef) {
             sendAudioToGemini(base64Data, geminiSessionRef);
 
             if (process.env.DEBUG_AUDIO) {
-                console.log(`Processed audio chunk: ${chunk.length} bytes`);
+                safeLog(`Processed audio chunk: ${chunk.length} bytes`);
                 saveDebugAudio(monoChunk, 'system_audio');
             }
         }
@@ -467,16 +484,16 @@ async function startMacOSAudioCapture(geminiSessionRef) {
     });
 
     systemAudioProc.stderr.on('data', data => {
-        console.error('SystemAudioDump stderr:', data.toString());
+        safeError('SystemAudioDump stderr:', data.toString());
     });
 
     systemAudioProc.on('close', code => {
-        console.log('SystemAudioDump process closed with code:', code);
+        safeLog('SystemAudioDump process closed with code:', code);
         systemAudioProc = null;
     });
 
     systemAudioProc.on('error', err => {
-        console.error('SystemAudioDump process error:', err);
+        safeError('SystemAudioDump process error:', err);
         systemAudioProc = null;
     });
 
@@ -497,7 +514,7 @@ function convertStereoToMono(stereoBuffer) {
 
 function stopMacOSAudioCapture() {
     if (systemAudioProc) {
-        console.log('Stopping SystemAudioDump...');
+        safeLog('Stopping SystemAudioDump...');
         systemAudioProc.kill('SIGTERM');
         systemAudioProc = null;
     }
@@ -515,7 +532,7 @@ async function sendAudioToGemini(base64Data, geminiSessionRef) {
             },
         });
     } catch (error) {
-        console.error('Error sending audio to Gemini:', error);
+        safeError('Error sending audio to Gemini:', error);
     }
 }
 
@@ -541,7 +558,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             });
             return { success: true };
         } catch (error) {
-            console.error('Error sending system audio:', error);
+            safeError('Error sending system audio:', error);
             return { success: false, error: error.message };
         }
     });
@@ -556,7 +573,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             });
             return { success: true };
         } catch (error) {
-            console.error('Error sending mic audio:', error);
+            safeError('Error sending mic audio:', error);
             return { success: false, error: error.message };
         }
     });
@@ -566,14 +583,14 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
         try {
             if (!data || typeof data !== 'string') {
-                console.error('Invalid image data received');
+                safeError('Invalid image data received');
                 return { success: false, error: 'Invalid image data' };
             }
 
             const buffer = Buffer.from(data, 'base64');
 
             if (buffer.length < 1000) {
-                console.error(`Image buffer too small: ${buffer.length} bytes`);
+                safeError(`Image buffer too small: ${buffer.length} bytes`);
                 return { success: false, error: 'Image buffer too small' };
             }
 
@@ -584,7 +601,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
             return { success: true };
         } catch (error) {
-            console.error('Error sending image:', error);
+            safeError('Error sending image:', error);
             return { success: false, error: error.message };
         }
     });
@@ -597,11 +614,11 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 return { success: false, error: 'Invalid text message' };
             }
 
-            console.log('Sending text message:', text);
+            safeLog('Sending text message:', text);
             await geminiSessionRef.current.sendRealtimeInput({ text: text.trim() });
             return { success: true };
         } catch (error) {
-            console.error('Error sending text:', error);
+            safeError('Error sending text:', error);
             return { success: false, error: error.message };
         }
     });
@@ -618,7 +635,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             const success = await startMacOSAudioCapture(geminiSessionRef);
             return { success };
         } catch (error) {
-            console.error('Error starting macOS audio capture:', error);
+            safeError('Error starting macOS audio capture:', error);
             return { success: false, error: error.message };
         }
     });
@@ -628,7 +645,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             stopMacOSAudioCapture();
             return { success: true };
         } catch (error) {
-            console.error('Error stopping macOS audio capture:', error);
+            safeError('Error stopping macOS audio capture:', error);
             return { success: false, error: error.message };
         }
     });
@@ -648,7 +665,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
             return { success: true };
         } catch (error) {
-            console.error('Error closing session:', error);
+            safeError('Error closing session:', error);
             return { success: false, error: error.message };
         }
     });
@@ -658,7 +675,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         try {
             return { success: true, data: getCurrentSessionData() };
         } catch (error) {
-            console.error('Error getting current session:', error);
+            safeError('Error getting current session:', error);
             return { success: false, error: error.message };
         }
     });
@@ -668,19 +685,19 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             initializeNewSession();
             return { success: true, sessionId: currentSessionId };
         } catch (error) {
-            console.error('Error starting new session:', error);
+            safeError('Error starting new session:', error);
             return { success: false, error: error.message };
         }
     });
 
     ipcMain.handle('update-google-search-setting', async (event, enabled) => {
         try {
-            console.log('Google Search setting updated to:', enabled);
+            safeLog('Google Search setting updated to:', enabled);
             // The setting is already saved in localStorage by the renderer
             // This is just for logging/confirmation
             return { success: true };
         } catch (error) {
-            console.error('Error updating Google Search setting:', error);
+            safeError('Error updating Google Search setting:', error);
             return { success: false, error: error.message };
         }
     });
