@@ -770,7 +770,8 @@ async function captureTextModeScreenshot() {
 async function sendTextModeQueue() {
     try {
         cheddar.setStatus('Sending to Gemini...');
-        cheddar.e()._awaitingNewResponse = true;
+        const app = cheddar.e();
+        if (app) app._awaitingNewResponse = true;
         const result = await ipcRenderer.invoke('text-mode-send');
         if (!result.success) {
             cheddar.setStatus(result.error);
@@ -815,7 +816,8 @@ async function sendTextModeQueryWithCapture(message) {
 
         // Send to Gemini
         cheddar.setStatus('Sending to Gemini...');
-        cheddar.e()._awaitingNewResponse = true;
+        const app = cheddar.e();
+        if (app) app._awaitingNewResponse = true;
         const sendResult = await ipcRenderer.invoke('text-mode-send');
         if (!sendResult.success) {
             cheddar.setStatus(sendResult.error);

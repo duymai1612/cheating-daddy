@@ -382,9 +382,8 @@ export class CheatingDaddyApp extends LitElement {
     async handleSendText(message) {
         // In text mode, capture screenshot and send with the message
         if (this.assistantMode === 'text') {
-            // Clear old responses before new query
-            this.responses = [];
-            this.currentResponseIndex = -1;
+            // Mark that we're awaiting a new response (will be appended to history)
+            this._awaitingNewResponse = true;
             this.requestUpdate();
 
             // Add message as text query and trigger capture+send
@@ -394,7 +393,6 @@ export class CheatingDaddyApp extends LitElement {
                 this.setStatus('Error: ' + result.error);
             } else {
                 this.setStatus('Capturing and sending...');
-                this._awaitingNewResponse = true;
             }
         } else {
             // Audio mode - send directly to live session

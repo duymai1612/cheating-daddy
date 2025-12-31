@@ -4,6 +4,10 @@ const { spawn } = require('child_process');
 const { saveDebugAudio } = require('../audioUtils');
 const { getSystemPrompt } = require('./prompts');
 
+// Live API model for audio input with text output
+// gemini-2.0-flash-exp supports Live API with TEXT responseModality
+const LIVE_API_MODEL = 'gemini-2.0-flash-exp';
+
 // Safe logging to prevent EPIPE errors when stdout pipe closes
 function safeLog(...args) {
     try {
@@ -51,9 +55,13 @@ let reconnectionDelay = 2000; // 2 seconds between attempts
 let lastSessionParams = null;
 
 function sendToRenderer(channel, data) {
-    const windows = BrowserWindow.getAllWindows();
-    if (windows.length > 0) {
-        windows[0].webContents.send(channel, data);
+    try {
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0 && !windows[0].isDestroyed()) {
+            windows[0].webContents.send(channel, data);
+        }
+    } catch (e) {
+        // Ignore errors when window is closing
     }
 }
 
@@ -259,7 +267,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
     try {
         const session = await client.live.connect({
-            model: 'gemini-2.5-flash-preview-native-audio-dialog',
+            model: LIVE_API_MODEL,
             callbacks: {
                 onopen: function () {
                     sendToRenderer('update-status', 'Live session connected');
@@ -330,11 +338,26 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             e.reason.includes('authentication failed') ||
                             e.reason.includes('unauthorized'));
 
+                    // Check if the session closed due to model not found/unavailable
+                    const isModelError =
+                        e.reason &&
+                        (e.reason.includes('is not found') ||
+                            e.reason.includes('not supported') ||
+                            e.reason.includes('model') && e.reason.includes('unavailable'));
+
                     if (isApiKeyError) {
                         safeLog('Session closed due to invalid API key - stopping reconnection attempts');
                         lastSessionParams = null; // Clear session params to prevent reconnection
                         reconnectionAttempts = maxReconnectionAttempts; // Stop further attempts
                         sendToRenderer('update-status', 'Session closed: Invalid API key');
+                        return;
+                    }
+
+                    if (isModelError) {
+                        safeLog('Session closed due to model unavailable - stopping reconnection attempts');
+                        lastSessionParams = null;
+                        reconnectionAttempts = maxReconnectionAttempts;
+                        sendToRenderer('update-status', 'Session closed: Model unavailable');
                         return;
                     }
 

@@ -164,6 +164,7 @@ function setupGeneralIpcHandlers() {
 
     // Store custom query for next send
     let pendingCustomQuery = null;
+    let isSendingTextMode = false; // Lock to prevent concurrent sends
 
     // Set custom query text for next send
     ipcMain.handle('text-mode-set-query', async (event, query) => {
@@ -195,22 +196,50 @@ function setupGeneralIpcHandlers() {
 
     // Send queued images to Gemini
     ipcMain.handle('text-mode-send', async () => {
+        // Prevent concurrent sends
+        if (isSendingTextMode) {
+            return { success: false, error: 'Already sending' };
+        }
+
         try {
+            isSendingTextMode = true;
+
             const images = imageQueue.getAllImages();
             if (images.length === 0) {
                 return { success: false, error: 'No images in queue' };
             }
 
-            // Get API key and settings from renderer
-            const apiKey = await mainWindow.webContents.executeJavaScript(
-                `localStorage.getItem('apiKey')`
-            );
-            const profile = await mainWindow.webContents.executeJavaScript(
-                `localStorage.getItem('selectedProfile') || 'interview'`
-            );
-            const customPrompt = await mainWindow.webContents.executeJavaScript(
-                `localStorage.getItem('customPrompt') || ''`
-            );
+            // Check if mainWindow is still valid
+            if (!mainWindow || mainWindow.isDestroyed()) {
+                return { success: false, error: 'Window closed' };
+            }
+
+            // Wait for renderer to be ready
+            if (mainWindow.webContents.isLoading()) {
+                return { success: false, error: 'Window still loading' };
+            }
+
+            // Small delay to let renderer settle after UI operations
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Get API key and settings from renderer (single call to reduce race conditions)
+            let apiKey, profile, customPrompt;
+            try {
+                const settingsJson = await mainWindow.webContents.executeJavaScript(`
+                    JSON.stringify({
+                        apiKey: localStorage.getItem('apiKey') || '',
+                        profile: localStorage.getItem('selectedProfile') || 'interview',
+                        customPrompt: localStorage.getItem('customPrompt') || ''
+                    })
+                `);
+                const settings = JSON.parse(settingsJson);
+                apiKey = settings.apiKey;
+                profile = settings.profile;
+                customPrompt = settings.customPrompt;
+            } catch (jsError) {
+                console.error('Failed to get settings from renderer:', jsError.message);
+                return { success: false, error: 'Failed to access settings' };
+            }
 
             if (!apiKey) {
                 return { success: false, error: 'No API key configured' };
@@ -227,6 +256,9 @@ function setupGeneralIpcHandlers() {
             if (result.success) {
                 sendToRenderer('update-response', result.text);
                 sendToRenderer('update-status', 'Ready');
+                // Clear queue after successful send so user can capture new images
+                imageQueue.clearQueue();
+                sendToRenderer('queue-updated', { count: 0 });
                 return { success: true };
             } else {
                 sendToRenderer('update-status', 'Error: ' + result.error);
@@ -236,6 +268,8 @@ function setupGeneralIpcHandlers() {
             console.error('Text mode send error:', error);
             sendToRenderer('update-status', 'Error: ' + error.message);
             return { success: false, error: error.message };
+        } finally {
+            isSendingTextMode = false;
         }
     });
 
